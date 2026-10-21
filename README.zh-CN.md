@@ -300,7 +300,8 @@ OpenAI 兼容端点（`llm_api_key`，中文界面默认 `https://api.deepseek.c
 **2. 语音密钥 —— 非必须。** 先在同一个**后端 → 本机** tab 顶部选服务商（**语音服务商** → 火山 /
 Google），再填该服务商的密钥。这是两个独立的服务，条款和数据处理各归各家。
 选**火山**就填[火山引擎语音服务](https://www.volcengine.com/product/voice-tech)的 API Key；
-选 **Google** 则要一把 Vertex Express Key，外加 GCP 的**项目编号**（不是项目名）和一个区域。
+选 **Google** 则只要一把 [Google AI Studio](https://aistudio.google.com/apikey) 的 API Key，别的都不用填
+—— 这个构建走的是 Gemini 开发者 API，既不需要 GCP 的**项目编号**，也不需要区域，那两栏留空即可。
 选中的那家没填密钥，识别和合成就会在握手阶段失败，**表现为连接超时** —— 看着像网络坏了，
 其实是那一栏空着。其余功能照常，只是既听不见也说不出。
 不管你选哪家，音频都会发到那家 —— 见 [DISCLAIMER.zh-CN.md](DISCLAIMER.zh-CN.md)。

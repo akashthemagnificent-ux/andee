@@ -37,10 +37,12 @@ import java.util.concurrent.TimeUnit
  *    omitting it is accepted on one Google surface and a
  *    `400 Please use a valid role` on another, and that the cost of always
  *    sending it is one field.
- *  * **`/publishers/google` in the path is not optional** — its absence is a
- *   404 with an HTML body, which reads as "wrong host" rather than "wrong
- *    path". Same reason the reference's client logs the first raw response
- *   chunk: the audio container is only ever learned from that field.
+ *  * **The path carries no `/publishers/google` segment on this surface.**
+ *    Vertex puts one between the base and the model id; the Gemini Developer
+ *    API does not, and that segment here is a 404 with an HTML body, which
+ *    reads as "wrong host" rather than "wrong path". Same reason the
+ *    reference's client logs the first raw response chunk: the audio
+ *    container is only ever learned from that field.
  *
  * See `GoogleAsr` for why this device speaks HTTP to Google instead of using
  * the WebSocket the vendor's own live models want.

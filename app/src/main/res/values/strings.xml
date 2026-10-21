@@ -106,12 +106,13 @@
     <string name="settings_google_project">项目号(此版本不用)</string>
     <string name="settings_google_project_hint">本版本走 Gemini 开发者 API,不需要项目号,留空即可</string>
     <string name="settings_google_location">区域(此版本不用)</string>
+    <string name="settings_google_location_hint">本版本走 Gemini 开发者 API,不需要区域,留空即可</string>
     <string name="settings_google_asr_model">识别模型</string>
     <string name="settings_google_tts_model">合成模型</string>
     <string name="settings_google_base_url">接口地址</string>
     <string name="settings_google_language">语言</string>
     <string name="settings_google_language_hint">留空 = 自动判断</string>
-    <string name="settings_voice_google_note">识别走 Gemini Live(需要项目号和区域),合成走 HTTP。密钥只存在这台设备上。</string>
+    <string name="settings_voice_google_note">识别走 Gemini Live,合成走 HTTP,都走 Gemini 开发者 API(AI Studio)。密钥只存在这台设备上。</string>
     <string name="settings_section_diagnostics">诊断</string>
     <string name="settings_section_advanced">高级</string>
     <string name="settings_max_steps">单次任务最多步数</string>

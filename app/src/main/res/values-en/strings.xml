@@ -129,12 +129,13 @@
     <string name="settings_google_project">Project number (unused here)</string>
     <string name="settings_google_project_hint">This build uses the Gemini Developer API; no project number is needed — leave it blank</string>
     <string name="settings_google_location">Location (unused here)</string>
+    <string name="settings_google_location_hint">This build uses the Gemini Developer API; no location is needed — leave it blank</string>
     <string name="settings_google_asr_model">Recognition model</string>
     <string name="settings_google_tts_model">Synthesis model</string>
     <string name="settings_google_base_url">Endpoint</string>
     <string name="settings_google_language">Language</string>
     <string name="settings_google_language_hint">blank = detect automatically</string>
-    <string name="settings_voice_google_note">Recognition runs on Gemini Live (so it needs the project number and location); synthesis is plain HTTP. The key stays on this device.</string>
+    <string name="settings_voice_google_note">Recognition runs on Gemini Live and synthesis is plain HTTP, both against the Gemini Developer API (AI Studio). The key stays on this device.</string>
     <string name="settings_section_diagnostics">Diagnostics</string>
     <string name="settings_section_advanced">Advanced</string>
     <string name="settings_max_steps">Max steps per task</string>

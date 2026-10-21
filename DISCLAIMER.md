@@ -34,7 +34,7 @@ An **experimental** piece of software that you install on **your own device**. I
 
 | What | Goes to | Default |
 |---|---|---|
-| Your speech (ASR) and its speech (TTS) | **The speech provider you select** — Volcengine / ByteDance by default, or Google | Whichever is picked in ⚙ → **Backend → Voice provider**: Volcengine → `openspeech.bytedance.com`; Google → `aiplatform.googleapis.com`. A build packaged with a Google key comes up on Google; the source checkout defaults to Volcengine |
+| Your speech (ASR) and its speech (TTS) | **The speech provider you select** — Volcengine / ByteDance by default, or Google | Whichever is picked in ⚙ → **Backend → Voice provider**: Volcengine → `openspeech.bytedance.com`; Google → `generativelanguage.googleapis.com`. A build packaged with a Google key comes up on Google; the source checkout defaults to Volcengine |
 | The conversation, **and every tool result** | The "brain" you configured | `brain=local` (the out-of-box default) → `api.deepseek.com` on a Chinese UI and `api.openai.com` on an English one; in hub mode, your own `hub_url` |
 | The private notebook (`Notebook` — what it remembers about you, what it promised) | **On this device only** | Filtered out of the hub payload |
 | **Version check**: your version number, phone model / brand / OS version, UI language, one random install ID | **A server the maintainers run** (not a third party) | Once on first launch, and once per tap on the self-check page's **Check again**; capped at 10 per IP per day |

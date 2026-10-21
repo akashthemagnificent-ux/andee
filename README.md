@@ -354,8 +354,10 @@ doing nothing.
 On-device** tab (**Voice provider** → Volcengine or Google), and then fill in that provider's key.
 This is a separate service from Volcengine's, with its own terms and data handling.
 For **Volcengine**, a [Volcengine Speech](https://www.volcengine.com/product/voice-tech) API key goes
-in the **Volcengine API key** field; for **Google**, a Vertex Express key plus a GCP project *number*
-and a location. Without a key for whichever one is selected, ASR and TTS fail during the handshake,
+in the **Volcengine API key** field; for **Google**, a [Google AI Studio](https://aistudio.google.com/apikey)
+API key, and nothing else — this build calls the Gemini Developer API, which needs no GCP project
+number and no region, so those two rows can stay blank. Without a key for whichever one is selected,
+ASR and TTS fail during the handshake,
 which surfaces as a **connect timeout** — the device looks like it has a network problem when what it
 has is a blank field. Everything else still works; it is just mute and deaf.
 Whichever you pick, the audio goes to that provider — see [DISCLAIMER.md](DISCLAIMER.md).

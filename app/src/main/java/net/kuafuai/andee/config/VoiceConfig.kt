@@ -22,7 +22,7 @@ data class VoiceConfig(
      * reason [ttsSpeaker] lives in this object.
      */
     val voiceProvider: String,
-    /** Vertex Express key. Empty means the Google path cannot run. */
+    /** Gemini Developer API key (AI Studio). Empty means the Google path cannot run. */
     val googleApiKey: String,
     val googleBaseUrl: String,
     /**
@@ -125,11 +125,13 @@ data class VoiceConfig(
         const val DEFAULT_GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
         /**
-         * The region the Live API session is opened in.
+         * The region a *Vertex* Live API session would be opened in.
          *
-         * The reference gateway measured both this and `global` handshaking
-         * successfully; a real region is the default because it is the one that
-         * cannot silently route a device somewhere it has no business being.
+         * Nothing reads it on the Developer API — that surface takes no region
+         * at all, so this is a leftover for the settings row and for a
+         * Vertex-inclined future. It stayed a real value rather than a blank
+         * because `google_location` has always had one and the card shows it
+         * when a build bakes it in.
          */
         const val DEFAULT_GOOGLE_LOCATION = "asia-northeast1"
 

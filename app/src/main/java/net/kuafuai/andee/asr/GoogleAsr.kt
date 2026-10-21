@@ -278,7 +278,7 @@ class GoogleAsr(
         ws = socket
 
         if (!setup.await(SETUP_TIMEOUT_S, TimeUnit.SECONDS)) {
-            throw IllegalStateException("ASR setup 超时 (检查 project number / location / 模型名)")
+            throw IllegalStateException("ASR setup 超时 (检查 API key / 模型名 / 网络)")
         }
         // The latch is also counted down by a failure, so reaching here is not
         // proof of success — the error path has already said its piece.

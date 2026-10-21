@@ -736,19 +736,23 @@ class SettingsUi(
             numeric = true,
         )
 
-        // ---- Google: one Vertex Express key, two protocols ----
+        // ---- Google: one AI Studio key, two protocols ----
         //
         // Every hint here is the value a blank row resolves to, from the same
         // constants [VoiceConfig.load] reads — the same rule the LLM rows
         // follow, for the same reason: a card that advertises a model but
         // silently calls another is lying where the user goes to decide.
         // A blank row means "use whatever the build carries", which for a
-        // packaged-for-Google APK is a real key and a real project number. So
-        // the hint has to say that, or the user reads an empty box as "not set
-        // up" while the device is happily talking to Google with a credential
-        // they never typed. The key's *value* is never shown — a settings card
-        // is not a place to print a secret — but the project number is not one,
-        // and printing it is how the row can be checked at a glance.
+        // packaged-for-Google APK is a real key. So the hint has to say that,
+        // or the user reads an empty box as "not set up" while the device is
+        // happily talking to Google with a credential they never typed. The
+        // key's *value* is never shown — a settings card is not a place to
+        // print a secret — but a built-in project number is not one, and
+        // printing it is how that row can be checked at a glance. (On the
+        // Developer API nothing reads the project row at all; it keeps its
+        // hint only because a build could still bake one in.)
+        // The Location row gets no default: its value is unused here, and
+        // printing `asia-northeast1` advertised a live setting that is not.
         val builtInKey = VoiceConfig.googleApiKeyDefault()
         val builtInProject = VoiceConfig.googleProjectDefault()
 
@@ -776,7 +780,10 @@ class SettingsUi(
             googleBlock,
             "google_location",
             lctx.getString(R.string.settings_google_location),
-            hint = VoiceConfig.googleLocationDefault(),
+            // Unused on the Developer API. The hint used to print the real
+            // default (`asia-northeast1`), which advertised a field that
+            // nothing reads — say so instead of making it look live.
+            hint = lctx.getString(R.string.settings_google_location_hint),
         )
         field(
             googleBlock,
