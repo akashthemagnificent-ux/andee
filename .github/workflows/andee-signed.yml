@@ -1,0 +1,124 @@
+# Builds an installable, stably-signed APK for this fork.
+#
+# `build.yml` upstream is a *check*: it emits a debug APK signed with whatever
+# throwaway key the runner invented that morning. That is fine for CI and
+# useless for a device, because Android refuses to update a package across two
+# different signers (INSTALL_FAILED_UPDATE_INCOMPATIBLE) — and the alternative,
+# uninstalling, destroys the chat history, the notebook and the vault.
+#
+# So this workflow signs with a key from repository secrets, which means every
+# build it produces from now on can be installed over the last one.
+#
+# It also bakes the Google voice configuration in, if those secrets exist, so
+# the device does not have to be re-typed after each install. Any of them may
+# be absent: a fork without them still builds, and the settings card can still
+# be filled in by hand.
+name: signed-apk
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # JDK 17 is a narrow window, not a preference: AGP 8.3.1 needs 17+, and
+      # the Gradle 8.4 wrapper rejects class files from 21+. See build.yml.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v3
+
+      - name: Provide signing material
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDEE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDEE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDEE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDEE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::ANDEE_KEYSTORE_BASE64 is unset — refusing to build an APK"
+            echo "::error::that cannot be installed over the previous one."
+            exit 1
+          fi
+          mkdir -p .ci
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > .ci/andee-release.jks
+          {
+            echo "ANDEE_KEYSTORE_PATH=.ci/andee-release.jks"
+            echo "ANDEE_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "ANDEE_KEY_ALIAS=$KEY_ALIAS"
+            echo "ANDEE_KEY_PASSWORD=$KEY_PASSWORD"
+          } >> local.properties
+
+      # The Google voice configuration, written into local.properties because
+      # that is the one file app/build.gradle reads it from and .gitignore keeps
+      # out of the tree. Empty secrets become empty fields, which is exactly
+      # what a checkout with nothing configured has always built.
+      - name: Bake voice configuration
+        env:
+          GV_KEY: ${{ secrets.GOOGLE_VOICE_KEY }}
+          GV_PROJECT: ${{ secrets.GOOGLE_VOICE_PROJECT }}
+          GV_LOCATION: ${{ secrets.GOOGLE_VOICE_LOCATION }}
+          GV_BASE: ${{ secrets.GOOGLE_VOICE_BASE_URL }}
+          GV_ASR: ${{ secrets.GOOGLE_VOICE_ASR_MODEL }}
+          GV_TTS: ${{ secrets.GOOGLE_VOICE_TTS_MODEL }}
+        run: |
+          set -euo pipefail
+          touch local.properties
+          {
+            echo "GOOGLE_VOICE_KEY=${GV_KEY:-}"
+            echo "GOOGLE_VOICE_PROJECT=${GV_PROJECT:-}"
+            echo "GOOGLE_VOICE_LOCATION=${GV_LOCATION:-}"
+            echo "GOOGLE_VOICE_BASE_URL=${GV_BASE:-}"
+            echo "GOOGLE_VOICE_ASR_MODEL=${GV_ASR:-}"
+            echo "GOOGLE_VOICE_TTS_MODEL=${GV_TTS:-}"
+          } >> local.properties
+
+      # Debug, not release, on purpose: R8 runs only on release, and a minified
+      # build of a fork is a second thing that can break in a way the logcat
+      # does not explain. The debug APK is signed with the stable key above, so
+      # it updates cleanly — which was the only reason to care about the
+      # variant. `build.yml`'s release job still runs R8 as the gate.
+      # `-PdbgSuffix=.fork` is not cosmetic. The official release APK on the
+      # device is signed with the upstream maintainer's throwaway debug key, so
+      # installing over it is refused (INSTALL_FAILED_UPDATE_INCOMPATIBLE) and
+      # the only other route is uninstalling — which throws away chat history,
+      # notebook and vault. A suffixed package installs *beside* it instead.
+      # Every later build of this fork carries the same suffix, so the fork
+      # updates over itself cleanly from here on.
+      - name: Build debug APKs
+        run: ./gradlew --no-daemon :app:assembleDebug -PdbgSuffix=.fork
+
+      - name: Collect APKs
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp app/build/outputs/apk/debug/*arm64-v8a*.apk out/
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: andee-fork-arm64-signed
+          path: out/*.apk
+          if-no-files-found: error
+
+  # Kept so a red R8/lint result is visible on a fork too, where the release
+  # build is never otherwise exercised.
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+      - run: ./gradlew --no-daemon :app:assembleRelease

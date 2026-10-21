@@ -159,8 +159,12 @@ class GoogleTts(
      * break on a long sentence.
      */
     private fun request(sentence: String): Boolean {
+        // Developer API shape: `<base>/models/<id>:streamGenerateContent`.
+        // Vertex put `/publishers/google` between the base and the id; on this
+        // surface that segment is a 404 with an HTML body, which reads as
+        // "wrong host" rather than "wrong path".
         val url = config.googleBaseUrl.trimEnd('/') +
-            "/publishers/google/models/" + config.googleTtsModel +
+            "/models/" + config.googleTtsModel +
             ":streamGenerateContent?alt=sse&key=" + config.googleApiKey
 
         val request = Request.Builder()

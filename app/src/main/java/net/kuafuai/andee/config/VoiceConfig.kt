@@ -29,11 +29,11 @@ data class VoiceConfig(
      * GCP project **number**, and the region the Live API session is opened
      * in. Both are only used by the listening half.
      *
-     * The model has to be named by its full resource path —
-     * `projects/{n}/locations/{r}/publishers/google/models/{m}` — because the
-     * Live API reads a bare name as a project id and answers
-     * `1008 Permission denied on resource project …`. The reference gateway
-     * found that out the hard way; these two rows are what that costs.
+     * On the Developer API the model is named `models/{m}` — the `models/`
+     * prefix is required and a bare id is rejected with
+     * `1007 Unexpected model name format`. Neither row is read on this
+     * surface; they are kept because the settings card still carries them and
+     * a Vertex-inclined future would want them.
      */
     val googleProject: String,
     val googleLocation: String,
@@ -110,13 +110,19 @@ data class VoiceConfig(
         const val VOICE_GOOGLE = "google"
 
         /**
-         * The Vertex endpoint, its Express-keyed surface.
+         * The Gemini Developer API (AI Studio) endpoint — **not Vertex**.
          *
-         * Not a region-scoped host: Express mode takes an API key and no
-         * project or location, which is what makes the Google path a single
-         * settings row instead of the five the reference gateway needs.
+         * This build speaks the Developer API because that is the surface an
+         * ordinary Google AI Studio key works on. Vertex rejects the same key
+         * with `403 SERVICE_DISABLED` unless the project has the Agent Platform
+         * API enabled and billing attached, and Live-API models are explicitly
+         * unsupported in Vertex Express mode.
+         *
+         * The `/v1beta` in the path is load-bearing: TTS posts to
+         * `<base>/models/<model>:streamGenerateContent`, so a base without it
+         * is a 404.
          */
-        const val DEFAULT_GOOGLE_BASE_URL = "https://aiplatform.googleapis.com/v1"
+        const val DEFAULT_GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
         /**
          * The region the Live API session is opened in.
@@ -139,10 +145,12 @@ data class VoiceConfig(
          * could decide otherwise, on a transcript the meeting recorder writes
          * to disk as the record of what was said.
          *
-         * The `-preview` suffix is not optional either: without it the name is
-         * a 404. Both facts are the reference gateway's, measured.
+         * On the Developer API the id carries **no** `-preview` suffix:
+         * `gemini-3.5-transcribe-live` is the name that model answers to here,
+         * measured against this key. The Vertex spelling with `-preview` is a
+         * 404 on this surface.
          */
-        const val DEFAULT_GOOGLE_ASR_MODEL = "gemini-3.5-transcribe-live-preview"
+        const val DEFAULT_GOOGLE_ASR_MODEL = "gemini-3.5-transcribe-live"
 
         /**
          * The speaking model.

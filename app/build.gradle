@@ -83,11 +83,58 @@ android {
         }
     }
 
+    // A stable signing key, so two builds can be installed over each other.
+    //
+    // This is the whole reason the block exists: every `assembleDebug` on a
+    // fresh machine invents its own `~/.android/debug.keystore`, and Android
+    // refuses `pm install -r` across two different signers
+    // (INSTALL_FAILED_UPDATE_INCOMPATIBLE). For an app that is side-loaded and
+    // then updated, that turns every release into an uninstall — which throws
+    // away the chat history, the notebook and the vault.
+    //
+    // The material is read from the environment first (that is how CI supplies
+    // it) and from `local.properties` second (that is how a local build does).
+    // When neither is present the block is skipped entirely, so a plain
+    // checkout still builds exactly what it built before.
+    def signingValue = { String envName, String propName ->
+        String v = System.getenv(envName)
+        if (v == null || v.trim().isEmpty()) v = localProps.getProperty(propName, '')
+        return (v == null || v.trim().isEmpty()) ? null : v.trim()
+    }
+    def storePath = signingValue('ANDEE_KEYSTORE_PATH', 'ANDEE_KEYSTORE_PATH')
+    def storePass = signingValue('ANDEE_KEYSTORE_PASSWORD', 'ANDEE_KEYSTORE_PASSWORD')
+    def keyAliasV = signingValue('ANDEE_KEY_ALIAS', 'ANDEE_KEY_ALIAS')
+    def keyPass   = signingValue('ANDEE_KEY_PASSWORD', 'ANDEE_KEY_PASSWORD')
+    def haveSigning = storePath != null && storePass != null && keyAliasV != null && keyPass != null
+
+    signingConfigs {
+        if (haveSigning) {
+            release {
+                storeFile rootProject.file(storePath)
+                storePassword storePass
+                keyAlias keyAliasV
+                keyPassword keyPass
+                // v1 is for API < 24, which minSdk 30 rules out; v2/v3/v4 are
+                // what the package manager actually verifies here.
+                enableV1Signing false
+                enableV2Signing true
+                enableV3Signing true
+                enableV4Signing true
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (haveSigning) signingConfig signingConfigs.release
+        }
+        debug {
+            // Same key for debug, so the APK this fork ships and the APK it
+            // ships next week are the same package manager identity.
+            if (haveSigning) signingConfig signingConfigs.release
         }
     }
     // One APK per ABI instead of one fat APK carrying all four. ML Kit's

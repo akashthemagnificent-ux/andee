@@ -32,10 +32,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * **The shape of the conversation is the reference gateway's**, and three
  * parts of it are things it measured rather than guessed:
  *
- *  * **The model must be named by its full resource path.** A bare name is
- *    read as a project id → `1008 Permission denied on resource project …`;
- *    `models/x` is a 1007. Hence [VoiceConfig.googleProject] and
- *    [VoiceConfig.googleLocation].
+ *  * **The model must be named `models/x` on the Developer API.** The prefix
+ *    is required — a bare id is `1007 Unexpected model name format` — and
+ *    neither the project number nor the location is sent, because this
+ *    surface does not take them.
  *  * **`responseModalities` must be `TEXT`.** A transcription model wants the
  *    opposite of a talking one, and getting it backwards drops the connection.
  *  * **`languageCodes` is sent as an explicit empty array**, not omitted, when
@@ -604,30 +604,35 @@ class GoogleAsr(
         .toString()
 
     /**
-     * The full resource path, or the bare name when no project is configured.
+     * The Developer API model name: `models/{id}`.
      *
-     * Bare is not a working configuration — the gateway's note is that it comes
-     * back as a permission error naming a project nobody asked for — but
-     * inventing a path around an empty field would replace a clear upstream
-     * error with a confusing local one.
+     * **The `models/` prefix is not optional on this surface.** The Live API
+     * answers a bare id with `1007 Unexpected model name format` — measured,
+     * not inferred — which reads like a broken model id rather than a missing
+     * prefix. Vertex used the full
+     * `projects/{n}/locations/{r}/publishers/google/models/{m}` path instead;
+     * neither the project number nor the location is read here.
      */
-    private fun modelPath(): String {
-        val project = config.googleProject
-        if (project.isBlank()) return config.googleAsrModel
-        return "projects/$project/locations/${config.googleLocation}" +
-            "/publishers/google/models/${config.googleAsrModel}"
-    }
+    private fun modelPath(): String = "models/${config.googleAsrModel}"
 
     companion object {
         private const val TAG = "GoogleAsr"
 
         /**
-         * The Live API endpoint. `v1beta1` is not a typo and not a preference:
-         * it is the version that serves `BidiGenerateContent`.
+         * The Developer API Live endpoint — **not** Vertex's
+         * `LlmBidiService`.
+         *
+         * The two surfaces have different hosts *and* different service names,
+         * so this is not a swap one can make by editing the host alone:
+         * Vertex is `aiplatform.googleapis.com` /
+         * `google.cloud.aiplatform.v1beta1.LlmBidiService`, the Developer API
+         * is `generativelanguage.googleapis.com` /
+         * `google.ai.generativelanguage.v1beta.GenerativeService`. `v1beta` is
+         * the version that serves `BidiGenerateContent`.
          */
         private const val LIVE_URL =
-            "wss://aiplatform.googleapis.com/ws/" +
-                "google.cloud.aiplatform.v1beta1.LlmBidiService/BidiGenerateContent"
+            "wss://generativelanguage.googleapis.com/ws/" +
+                "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
         private const val SAMPLE_RATE = 16_000
 

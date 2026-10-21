@@ -1450,13 +1450,16 @@ object SelfCheck {
     private const val VOICE_HOST = "openspeech.bytedance.com"
 
     /**
-     * Vertex's inference host — where both halves of the Google path go.
+     * The Developer API host — where both halves of the Google path go.
      *
      * Not the `wss://…/ws/…BidiGenerateContent` path and not a per-region
      * host: the probe is a TCP connect, so the name that matters is the one
-     * that has to resolve and accept a connection.
+     * that has to resolve and accept a connection. It matches
+     * [net.kuafuai.andee.config.VoiceConfig.DEFAULT_GOOGLE_BASE_URL]; a build
+     * that probes Vertex here while talking to Google's developer surface
+     * would report a green row for a host nothing uses.
      */
-    private const val VOICE_HOST_GOOGLE = "aiplatform.googleapis.com"
+    private const val VOICE_HOST_GOOGLE = "generativelanguage.googleapis.com"
 
     private const val VOICE_PORT = 443
     private const val PROBE_CONNECT_S = 6L

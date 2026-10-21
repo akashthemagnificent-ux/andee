@@ -29,3 +29,6 @@ __pycache__/
 # 而它和源页面几乎一样、很容易被误提交。两种后缀都要挡：
 andee-website/*.probe.html
 andee-website/*.degraded.html
+
+# Stable signing material supplied at build time (CI writes .ci/).
+/.ci/
