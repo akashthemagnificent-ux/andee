@@ -101,11 +101,11 @@
     <string name="settings_voice_provider_huoshan">火山</string>
     <string name="settings_voice_provider_google">谷歌</string>
     <string name="settings_google_api_key">Google API Key</string>
-    <string name="settings_google_api_key_hint">Vertex Express Key,听和说都用它</string>
+    <string name="settings_google_api_key_hint">AI Studio 的 API key,听和说都用它</string>
     <string name="settings_google_key_builtin">已内置(编译时写入),留空即用它</string>
-    <string name="settings_google_project">项目号</string>
-    <string name="settings_google_project_hint">GCP 的项目编号(不是项目名),识别要用</string>
-    <string name="settings_google_location">区域</string>
+    <string name="settings_google_project">项目号(此版本不用)</string>
+    <string name="settings_google_project_hint">本版本走 Gemini 开发者 API,不需要项目号,留空即可</string>
+    <string name="settings_google_location">区域(此版本不用)</string>
     <string name="settings_google_asr_model">识别模型</string>
     <string name="settings_google_tts_model">合成模型</string>
     <string name="settings_google_base_url">接口地址</string>
