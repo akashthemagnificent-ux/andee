@@ -1516,10 +1516,15 @@ object ToolSchemas {
 
         An empty query = pull a batch of the more important and recently used entries ("what have I written down").
         What comes back is name and summary; to get the body, look that name up again with recall.
+
+        **Describe what you are trying to do, in your own words** — 「打开 YouTube Music 搜一首歌」,
+        not 「YouTube」. The match is on the purpose, not the spelling: it handles different wording,
+        a different song, a different shop, and Chinese against Chinese. A short keyword searches
+        worse than a sentence, and an entry worded quite unlike your query can still be the right one.
     """.trimIndent(),
             required = emptyList(),
             props = mapOf(
-                "query" to prop("string", "Keyword. Empty = pull a batch of the important / recently used ones"),
+                "query" to prop("string", "What you are trying to do, in your own words (not keywords). Empty = pull a batch of the important / recently used ones"),
                 "type" to propEnum(
                     "Only look in this category",
                     listOf("user", "feedback", "way", "reference", "failure"),

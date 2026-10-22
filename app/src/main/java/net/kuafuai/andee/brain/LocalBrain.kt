@@ -114,6 +114,9 @@ class LocalBrain(
      */
     fun retune(next: VoiceConfig.Companion.BrainConfig) {
         llm.retune(next.model, next.thinking, next.reasoningEffort)
+        // The recorder holds a client of its own; retuning only this one would
+        // leave route summaries going to the old model until a restart.
+        recorder.retune(next)
     }
 
     private val loop = Executors.newSingleThreadExecutor { r ->
@@ -134,6 +137,14 @@ class LocalBrain(
     private val toolExec = Executors.newCachedThreadPool { r ->
         Thread(r, "LocalBrain-tool").apply { isDaemon = true }
     }
+
+    /**
+     * Writes the route of a finished task into the notebook. Built from the
+     * same [cfg] as this class so the two cannot start out disagreeing, and
+     * **retuned in [retune]** — it holds its own client, so a settings change
+     * reaches it only because that method says so.
+     */
+    private val recorder = RouteRecorder(appContext, cfg)
 
     /**
      * Bumped by [submit] and by [cancel]. A running turn compares it against
@@ -621,6 +632,36 @@ class LocalBrain(
             // Empty notebook, empty string, zero cost: the feature only starts
             // paying for itself once there is something to remember.
             val index = net.kuafuai.andee.config.Notebook.indexForPrompt(appContext)
+            // The routes it has already walked that look like this one. This is
+            // the *automatic* half of the notebook: `recall` only ever runs if
+            // the model thinks to call it, and a model that already believes it
+            // knows how to open YouTube Music has no reason to. Handing it the
+            // route costs a few hundred characters once per turn and is what
+            // makes the second run of a task cheaper than the first — see
+            // [Notebook.routesFor] for why the match is on purpose and not on
+            // words. Empty when nothing matches, which is the common case and
+            // costs nothing.
+            //
+            // Only for turns the user or a due todo started. A review is
+            // looking backwards and must not be talked into driving the device;
+            // a notification turn's subject is a stranger's text, and a stored
+            // route is exactly the kind of thing a hostile message would love
+            // to steer the model towards.
+            val routes = if (kind == TurnKind.USER || kind == TurnKind.WAKE) {
+                Notebook.routesFor(appContext, userText)
+            } else {
+                emptyList()
+            }
+            val routesText = routes.joinToString("\n") {
+                "- ${it.name}：${it.description}" +
+                    if (it.content.isNotBlank() && it.content != it.description) "\n  ${it.content}" else ""
+            }
+            // A route is in the notebook index too, and printing its name and
+            // description twice is a cost paid on every turn for nothing — the
+            // block below is the same entry with the steps attached. Drop the
+            // duplicates from the index rather than the other way round: the
+            // one carrying the content is the useful one.
+            val indexText = withRoutesRemoved(index, routes.map { it.name })
             val scenes = Notebook.scenesForPrompt(appContext)
             // The pages it has made, the same way and for the same reason: a
             // tool answers a question the brain thought to ask, and 「上次那个表格」
@@ -663,10 +704,24 @@ class LocalBrain(
                     // the model is never asked to arbitrate between two.
                     "content",
                     "[now ${stamp()}${if (kind == TurnKind.USER && !wordless) "" else " · ui-language ${uiLangTag()}"}] $said" +
-                        if (index.isEmpty()) {
+                        if (indexText.isEmpty()) {
                             ""
                         } else {
-                            "\n\n(what your notebook holds, for reference; use recall for detail)\n$index"
+                            "\n\n(what your notebook holds, for reference; use recall for detail)\n$indexText"
+                        } +
+                        // A route you walked before, put in front of you rather
+                        // than left behind a `recall` you have no reason to
+                        // call. The last line is not modesty: a stored route is
+                        // a memory of a screen that has since moved, and a model
+                        // that follows it without looking is how a fast path
+                        // becomes a wrong turn.
+                        if (routesText.isEmpty()) {
+                            ""
+                        } else {
+                            "\n\n(routes you have walked before that look like this — " +
+                                "try the one that fits instead of working it out again; " +
+                                "the screen may not be where you left it, so read it before every tap)\n" +
+                                routesText
                         } +
                         // Same position and same reason as the notebook index:
                         // a newly saved scene must not cost the prefix cache.
@@ -712,6 +767,10 @@ class LocalBrain(
         val tools = LlmClient.toolSpecs(ToolSchemas.all(), registry.tools(), market.tools())
         var lastSignature = ""
         var repeats = 0
+        // What this turn actually did to the screen, in order, for
+        // [RouteRecorder] — see [maybeRecordRoute]. Only populated for a turn
+        // that drove the device, so a conversation turn costs nothing.
+        val trail = ArrayList<String>()
 
         // Read once per turn so the setting can change without a brain
         // restart — see [VoiceConfig.maxSteps]. Values outside 1..200 are
@@ -759,6 +818,7 @@ class LocalBrain(
                             AppLocale.str(appContext, R.string.brain_no_result)
                         },
                     )
+                    maybeRecordRoute(gen, kind, userText, trail)
                 }
                 return
             }
@@ -794,6 +854,15 @@ class LocalBrain(
                 if (reply.content.isBlank() && !internal) onProgress(narrate(tc.name))
                 val t0 = android.os.SystemClock.uptimeMillis()
                 val msg = runTool(tc, images, internal, kind.untrusted)
+                if (!internal && trail.size < MAX_TRAIL_STEPS) {
+                    trail.add(
+                        summarizeForTrail(
+                            ToolSchemas.methodOf(tc.name) ?: tc.name,
+                            tc.argumentsRaw,
+                            msg.optString("content"),
+                        )
+                    )
+                }
                 BrainTrace.tool(
                     gen, tc.name, ToolSchemas.methodOf(tc.name), tc.argumentsRaw,
                     msg.optString("content"), android.os.SystemClock.uptimeMillis() - t0,
@@ -892,6 +961,113 @@ class LocalBrain(
             "Failed: ${t.message ?: t.javaClass.simpleName}"
         }
         return toolMessage(tc.id, body.take(MAX_TOOL_CHARS))
+    }
+
+    /**
+     * The notebook index minus the entries the route block is about to repeat.
+     *
+     * A route is a notebook entry, so it appears in both places, and the index
+     * line is a strict subset of the route block's first line. Dropping the
+     * duplicate matters because both ride on **every** user message: the whole
+     * point of the feature is that a turn gets cheaper, and paying twice for
+     * the same name would be the one charge it cannot pay back. The route block
+     * wins because it carries the steps.
+     *
+     * Parsed off `indexForPrompt`'s own format (`- name：description`, full-width
+     * colon) — they are written and read a dozen lines apart, and a format
+     * change has to touch both.
+     */
+    private fun withRoutesRemoved(index: String, routes: List<String>): String {
+        if (index.isEmpty() || routes.isEmpty()) return index
+        val names = routes.map { it.lowercase() }.toSet()
+        return index.lineSequence()
+            .filterNot { line ->
+                val body = line.trim().removePrefix("- ")
+                val name = body.substringBefore('：', body)
+                name.trim().lowercase() in names
+            }
+            .joinToString("\n")
+    }
+
+    /**
+     * One trail line: what was called, with what, and how it came back.
+     *
+     * The arguments and result are what make the route recognisable — "opened
+     * YouTube Music", "typed into the search box", "the first result showed the
+     * song" — and they are also the two biggest places an argument can hide a
+     * whole screenshot. `runTool` has already pulled images out of the result
+     * by the time this is called, but a `ui_tree` result still carries 300
+     * element lines, so this cuts hard: the route summary needs the shape of
+     * the step, not the screen.
+     */
+    private fun summarizeForTrail(name: String, args: String, result: String): String {
+        val a = args.take(160).replace('\n', ' ')
+        val r = result.take(140).replace('\n', ' ')
+        return if (r.isBlank()) "$name $a" else "$name $a → $r"
+    }
+
+    /**
+     * Write down the route of a task that just finished, out of band.
+     *
+     * Only for a turn the **user** started and that actually drove the screen —
+     * see the guards. The model call runs on [toolExec] rather than [loop] so
+     * the next turn is not queued behind a summarisation: the user has their
+     * answer already, and the note is a background errand.
+     *
+     * The *write* goes back to [loop], and that split is not tidiness.
+     * [Notebook] mutations are `@Synchronized`, so two threads can no longer
+     * lose each other's update — but they can still *queue*, and this runs
+     * behind a user's turn. Keeping the mutation on the loop is what makes it
+     * ordered with the turn that produced it: `remember` in one turn and a
+     * route note from the previous one can no longer race for who owns the
+     * entry of the same name. So the HTTP seconds stay off-thread and the
+     * millisecond of mutation does not. It also means [history] must not be
+     * touched from here; it isn't — the trail was copied out during the turn.
+     *
+     * Failure is silent by construction ([RouteRecorder.summarise] returns null
+     * on anything it cannot use), because this is an optimisation. It must
+     * never be able to turn a successful task into a spoken error.
+     */
+    private fun maybeRecordRoute(gen: Int, kind: TurnKind, request: String, trail: List<String>) {
+        if (kind != TurnKind.USER) return
+        // Nothing was driven: a question answered in prose is not a route.
+        if (trail.size < MIN_ROUTE_STEPS) return
+        // A cancelled turn did not reach a completion — what it did is a
+        // fragment of a route, and a fragment followed later is a wrong turn.
+        if (gen != generation.get()) return
+        if (cfg.apiKey.isEmpty()) return
+        // The prompt says what a route is; this is the mechanical half of the
+        // same rule. The trail carries `CommandDispatcher`'s *internal* names
+        // (`ToolSchemas.methodOf`), so the prefixes here are `screen.` and
+        // `device.` — not the LLM-facing `tap_` / `launch_app`. Reading a
+        // sensor (`device.battery`) shares that prefix and is harmless: it
+        // cannot reach the threshold on its own.
+        val drove = trail.count { it.startsWith("screen.") || it.startsWith("device.launch") }
+        if (drove < MIN_ROUTE_STEPS) return
+
+        val known = runCatching {
+            Notebook.routesFor(appContext, request, maxChars = 200).firstOrNull()?.name
+        }.getOrNull()
+
+        val copy = trail.toList()
+        toolExec.execute {
+            val note = try {
+                recorder.summarise(request, copy, known)
+            } catch (t: Throwable) {
+                Log.w(TAG, "route summarise threw: ${t.message}")
+                null
+            } ?: return@execute
+            // Back to the loop for the mutation itself. `execute` on a
+            // shut-down executor throws, which is the right answer during
+            // teardown: the brain is going away and a lost route note is not
+            // worth a crash.
+            runCatching {
+                loop.execute {
+                    val written = recorder.write(note)
+                    if (written != null) Log.i(TAG, "recorded route «$written»")
+                }
+            }
+        }
     }
 
     /**
@@ -1592,6 +1768,20 @@ class LocalBrain(
 
         /** Lower than the cloud's 10: a local round costs the user a minute. */
         private const val MAX_REPEATS = 3
+
+        /**
+         * Below this many screen-driving steps there is no route to write down.
+         * A task that opens an app and taps one thing is not worth a note; the
+         * prompt says the same thing, this is the mechanical half.
+         */
+        private const val MIN_ROUTE_STEPS = 3
+
+        /**
+         * Caps one trail line per tool call. A route is a dozen steps at most;
+         * a turn that made forty calls is either stuck or not a route, and
+         * either way the tail is what describes it.
+         */
+        private const val MAX_TRAIL_STEPS = 40
 
         private const val MAX_HISTORY = 60
 

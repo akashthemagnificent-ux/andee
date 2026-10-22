@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import net.kuafuai.andee.R
+import net.kuafuai.andee.brain.RecallMatch
 import net.kuafuai.andee.i18n.AppLocale
 import org.json.JSONArray
 import org.json.JSONObject
@@ -332,6 +333,7 @@ object Notebook {
      * Throws IllegalArgumentException on a bad [type] or an empty [name] — the
      * caller turns that into an error the model can read and retry.
      */
+    @Synchronized
     fun remember(
         context: Context,
         name: String,
@@ -403,37 +405,131 @@ object Notebook {
     }
 
     /**
-     * Keyword search, newest-and-most-important first.
+     * Look things up by **meaning**, not by spelling — see [RecallMatch].
      *
-     * Substring matching is enough at this scale (tens to hundreds of entries)
-     * and it is honest about its limits: no stemming, no synonyms, no
-     * embeddings. What it does have is a bias toward *recently used* entries,
-     * which is what makes a small notebook feel like it knows you.
+     * This used to be `String.contains` on name / description / content, which
+     * is not a search: ask for 「打开 YouTube Music 搜一首歌」 and an entry named
+     * 「YouTube Music 搜歌播放」 was invisible unless the model happened to type
+     * the stored keyword verbatim. The failure was worst exactly where the
+     * notebook is most valuable — the *plan* repeats while the song, the city
+     * and the shop change every time, so the words that differ are the words
+     * the retriever used to require.
+     *
+     * An empty query still means "the important and recently used ones", which
+     * is the one case where there is nothing to match against and the caller
+     * wants a browse.
+     *
+     * Ranking blends the match with [Memory.importance] and recency, in that
+     * order: a purpose match on a trivial note still beats no match at all, but
+     * between two equally good matches the one that matters more (and was
+     * needed more recently) wins. Hits are still bumped, so the recency half
+     * feeds itself — the notebook's idea of "used" stays true.
      */
     fun recall(context: Context, query: String, type: String, limit: Int): List<Memory> {
-        val q = query.trim().lowercase()
         val want = type.trim().lowercase()
         val now = System.currentTimeMillis()
         val all = memories(context).filter { !it.expired(now) }
             .filter { want.isBlank() || it.type == want }
-        val hits = if (q.isEmpty()) {
-            all
-        } else {
-            all.filter {
-                it.name.lowercase().contains(q) ||
-                    it.description.lowercase().contains(q) ||
-                    it.content.lowercase().contains(q)
-            }
+
+        if (query.isBlank()) {
+            val browse = all.sortedWith(
+                compareByDescending<Memory> { it.importance }
+                    .thenByDescending { it.updatedAt },
+            ).take(limit.coerceIn(1, 30))
+            if (browse.isNotEmpty()) bumpHits(context, browse.map { it.name })
+            return browse
         }
-        val ranked = hits.sortedWith(
-            compareByDescending<Memory> { it.importance }
-                .thenByDescending { it.updatedAt },
+
+        // A type filter is a strong prior, so it is expressed by narrowing the
+        // corpus rather than by adding a term — otherwise `type=way` would
+        // have to share the query with the words that describe the task.
+        val hits = RecallMatch.rank(
+            query = query,
+            docs = all.map { m -> toDoc(m) },
+            limit = limit.coerceIn(1, 30),
         )
-        val take = ranked.take(limit.coerceIn(1, 30))
+        if (hits.isEmpty()) return emptyList()
+
+        val byKey = all.associateBy { it.name.lowercase() }
+        val ranked = hits.mapNotNull { h ->
+            val m = byKey[h.key.lowercase()] ?: return@mapNotNull null
+            // Match dominates (0..1 against MIN_SCORE), the other two only
+            // decide ties — see the KDoc. Recency decays over a month so an
+            // untouched note sinks without ever being discarded.
+            val age = if (m.updatedAt <= 0) 1.0 else {
+                val days = (now - m.updatedAt).toDouble() / 86_400_000.0
+                (1.0 / (1.0 + days / 30.0)).coerceIn(0.0, 1.0)
+            }
+            m to (h.score + 0.20 * m.importance + 0.10 * age)
+        }.sortedByDescending { it.second }
+
+        val take = ranked.map { it.first }
         if (take.isNotEmpty()) bumpHits(context, take.map { it.name })
         return take
     }
 
+    /**
+     * The notebook's own searchable shape, weighted.
+     *
+     * The name is what a route is *called* ("YouTube Music 搜歌播放") and the
+     * description is the one-line "how", so those two carry the match; the
+     * content is the long body and is where a word is most likely to appear by
+     * coincidence — hence the lowest weight. A model's `name` for a way is
+     * instructed to be "the task name", which is exactly what a later request
+     * looks like.
+     */
+    private fun toDoc(m: Memory): RecallMatch.Doc = RecallMatch.Doc(
+        key = m.name.lowercase(),
+        payload = m,
+        fields = listOf(
+            RecallMatch.Field(m.name, 3.0),
+            RecallMatch.Field(m.description, 1.6),
+            RecallMatch.Field(m.content, 0.7),
+        ),
+    )
+
+    /**
+     * The routes it has already walked that bear on [task] — the fast path.
+     *
+     * Deliberately narrower than [recall]: `type=way` only, and the returned
+     * text is built to be **read**, not browsed. It is injected into the turn
+     * as a suggestion, so it says what the route was and then says plainly that
+     * the screen may not be where it was left — a stale route followed blindly
+     * is worse than no route at all, because the model stops looking.
+     *
+     * @param maxChars hard ceiling. This rides in every user message alongside
+     *   the notebook index, and the whole point of the feature is that a turn
+     *   gets *cheaper*; a route that costs more than it saves is not worth
+     *   injecting.
+     */
+    fun routesFor(context: Context, task: String, maxChars: Int = 1200): List<Memory> {
+        if (task.isBlank()) return emptyList()
+        val now = System.currentTimeMillis()
+        val ways = memories(context).filter { !it.expired(now) && it.type == "way" }
+        if (ways.isEmpty()) return emptyList()
+
+        val hits = RecallMatch.rank(
+            query = task,
+            docs = ways.map { toDoc(it) },
+            limit = 3,
+        )
+        if (hits.isEmpty()) return emptyList()
+
+        val byKey = ways.associateBy { it.name.lowercase() }
+        val picked = ArrayList<Memory>(hits.size)
+        var spent = 0
+        for (h in hits) {
+            val m = byKey[h.key.lowercase()] ?: continue
+            val cost = (m.name.length + m.description.length + m.content.length)
+            // Keep at least one; stop adding once the budget is gone.
+            if (picked.isNotEmpty() && spent + cost > maxChars) break
+            picked.add(m)
+            spent += cost
+        }
+        return picked
+    }
+
+    @Synchronized
     private fun bumpHits(context: Context, names: List<String>) {
         val wanted = names.map { it.lowercase() }.toSet()
         val b = book(context).let { JSONObject(it.toString()) }
@@ -451,6 +547,7 @@ object Notebook {
     }
 
     /** Hard delete by name. The model's `forget`. Returns false when absent. */
+    @Synchronized
     fun forget(context: Context, name: String): Boolean {
         val n = name.trim().lowercase()
         if (n.isEmpty()) return false
@@ -631,6 +728,7 @@ object Notebook {
 
     fun newTodoId(): String = "t" + System.currentTimeMillis().toString(36)
 
+    @Synchronized
     fun addTodo(context: Context, todo: Todo) {
         val b = book(context).let { JSONObject(it.toString()) }
         val arr = b.optJSONArray("todos") ?: JSONArray()
@@ -640,6 +738,7 @@ object Notebook {
     }
 
     /** Merge-patch one todo. Null when the id is unknown. */
+    @Synchronized
     fun patchTodo(
         context: Context,
         id: String,
@@ -710,6 +809,7 @@ object Notebook {
         .put("uses", s.uses)
 
     /** Create or overwrite. The second value is true when it was new. */
+    @Synchronized
     fun saveScene(
         context: Context,
         name: String,
@@ -753,6 +853,7 @@ object Notebook {
         return s to (old == null)
     }
 
+    @Synchronized
     fun deleteScene(context: Context, name: String): Boolean {
         val b = book(context).let { JSONObject(it.toString()) }
         val arr = b.optJSONArray("scenes") ?: return false
@@ -768,6 +869,7 @@ object Notebook {
         return true
     }
 
+    @Synchronized
     fun markSceneUsed(context: Context, name: String) {
         val b = book(context).let { JSONObject(it.toString()) }
         val arr = b.optJSONArray("scenes") ?: return
